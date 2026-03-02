@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+<!-- PWA / iOS ホーム画面設定 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="期限管理">
+<meta name="theme-color" content="#C85A2E">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="description" content="ギフト商品の賞味期限・在庫落とし日管理アプリ">
+
+<!-- PWA マニフェスト -->
+<link rel="manifest" href="manifest.json">
+
+<!-- iOS アイコン -->
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-192.png">
+
+<!-- Service Worker 登録 -->
+<script>
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', ()=>{
+      navigator.serviceWorker.register('sw.js').catch(()=>{});
+    });
+  }
+</script>
+
+<title>期限管理 - ギフト商品</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#F2F0EC; --card:#FFFFFF; --text:#1E1C18; --sub:#6B6760;
+    --border:#E4E0D8; --accent:#C85A2E; --accent-bg:#FCF0EB;
+    --green:#3A7D58; --green-bg:#EAF5EF;
+    --yellow:#9A7A18; --yellow-bg:#FBF5E0;
+    --orange:#B84E20; --orange-bg:#FBF0EB;
+    --red:#AA2828; --red-bg:#FCEAEA;
+    --purple:#6A3EA1; --purple-bg:#F3EDFF;
+    --tab-h:64px;
+    --sat: env(safe-area-inset-top);
+    --sab: env(safe-area-inset-bottom);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--text)}
+  body{display:flex;flex-direction:column;padding-top:var(--sat)}
+
+  /* HEADER */
+  .hdr{height:52px;background:var(--card);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 14px;flex-shrink:0}
+  .hdr-l{display:flex;align-items:center;gap:10px}
+  .hdr-logo{width:30px;height:30px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px}
+  .hdr-title{font-size:15px;font-weight:700}
+  .hdr-sub{font-size:9px;color:var(--sub);margin-top:1px}
+  .hdr-btn{width:38px;height:38px;border-radius:9px;border:1px solid var(--border);background:none;display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer}
+  .hdr-btn:active{background:var(--bg)}
+
+  /* SCROLL */
+  .scroll{flex:1;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;padding-bottom:calc(var(--tab-h) + var(--sab) + 20px)}
+
+  /* SUMMARY */
+  .summary{display:grid;grid-template-columns:repeat(4,1fr);background:var(--card);border-bottom:1px solid var(--border);padding:10px 0 8px}
+  .sum-cell{display:flex;flex-direction:column;align-items:center;gap:2px;border-right:1px solid var(--border);padding:2px 0}
+  .sum-cell:last-child{border-right:none}
+  .sum-n{font-size:20px;font-weight:700;font-family:'DM Mono',monospace;line-height:1}
+  .sum-l{font-size:9px;color:var(--sub);font-weight:500;text-align:center}
+  .sum-cell.s-ok .sum-n{color:var(--green)}
+  .sum-cell.s-rm .sum-n{color:var(--purple)}
+  .sum-cell.s-ex .sum-n{color:var(--red)}
+
+  /* ALERTS */
+  .alerts{padding:10px 12px 0;display:flex;flex-direction:column;gap:7px}
+  .alert{border-radius:10px;padding:10px 13px;display:flex;align-items:flex-start;gap:9px;font-size:12px;font-weight:500}
+  .alert.danger{background:var(--red-bg);color:var(--red)}
+  .alert.removal{background:var(--purple-bg);color:var(--purple)}
+
+  /* SEARCH */
+  .search-wrap{padding:10px 12px 0}
+  .search-inner{display:flex;align-items:center;gap:8px;background:var(--card);border:1.5px solid var(--border);border-radius:12px;padding:9px 13px}
+  .search-inner input{flex:1;background:none;border:none;outline:none;font-size:16px;font-family:'Noto Sans JP',sans-serif;color:var(--text)}
+  .search-inner input::placeholder{color:var(--sub);font-size:13px}
+
+  /* CHIPS */
+  .chips{display:flex;gap:6px;padding:10px 12px 0;overflow-x:auto;scrollbar-width:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{flex-shrink:0;padding:6px 13px;border-radius:20px;border:1.5px solid var(--border);background:var(--card);font-size:12px;font-weight:500;color:var(--sub);cursor:pointer;white-space:nowrap;font-family:inherit}
+  .chip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+
+  /* LIST */
+  .list-hdr{padding:12px 12px 5px;display:flex;align-items:center;justify-content:space-between}
+  .list-ttl{font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em}
+  .list-cnt{font-size:11px;font-family:'DM Mono',monospace;color:var(--sub);background:var(--bg);border:1px solid var(--border);padding:2px 9px;border-radius:20px}
+  .plist{padding:0 12px;display:flex;flex-direction:column;gap:8px}
+
+  /* CARD */
+  .pcard{background:var(--card);border-radius:13px;border:1px solid var(--border);overflow:hidden;animation:ci .2s ease}
+  @keyframes ci{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+  .cbar{height:3px}
+  .cbar.ok{background:var(--green)}.cbar.soon{background:var(--yellow)}.cbar.urgent{background:var(--orange)}.cbar.expired{background:var(--red)}.cbar.removal{background:var(--purple)}
+  .cbody{padding:13px 15px 0}
+  .ctop{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:9px}
+  .cname{font-size:14px;font-weight:600;line-height:1.4;flex:1}
+  .pill{flex-shrink:0;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;padding:4px 10px;border-radius:20px;white-space:nowrap}
+  .pill.ok{background:var(--green-bg);color:var(--green)}.pill.soon{background:var(--yellow-bg);color:var(--yellow)}.pill.urgent{background:var(--orange-bg);color:var(--orange)}.pill.expired{background:var(--red-bg);color:var(--red)}.pill.removal{background:var(--purple-bg);color:var(--purple)}
+  .cmeta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:9px}
+  .ctag{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;padding:3px 8px;border-radius:20px;background:var(--bg);color:var(--sub);border:1px solid var(--border)}
+  .cmeta-item{font-size:11px;color:var(--sub)}
+  .rm-banner{background:var(--purple-bg);border-radius:8px;padding:7px 11px;margin-bottom:9px;font-size:11px;color:var(--purple);font-weight:600}
+  .rm-info{font-size:11px;color:var(--sub);margin-bottom:8px}
+  .cmemo{margin-bottom:9px;font-size:12px;color:var(--sub);padding:6px 10px;background:var(--bg);border-radius:8px}
+  .cactions{display:flex;border-top:1px solid var(--border)}
+  .cact{flex:1;padding:13px;border:none;background:none;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;color:var(--sub)}
+  .cact:first-child{border-right:1px solid var(--border)}
+  .cact:active{background:var(--bg)}
+  .cact.del{color:var(--red)}
+
+  /* EMPTY */
+  .empty{text-align:center;padding:40px 24px;color:var(--sub)}
+  .empty-i{font-size:38px;margin-bottom:10px;opacity:.35}
+  .empty p{font-size:13px;line-height:1.7}
+
+  /* FAB */
+  .fab{position:fixed;bottom:calc(var(--tab-h) + var(--sab) + 14px);right:14px;width:50px;height:50px;background:var(--accent);border-radius:14px;border:none;color:#fff;font-size:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 18px rgba(200,90,46,.4);z-index:40;transition:transform .1s}
+  .fab:active{transform:scale(.92)}
+
+  /* BOTTOM TAB */
+  .btab{height:var(--tab-h);background:var(--card);border-top:1px solid var(--border);display:flex;flex-shrink:0;padding-bottom:var(--sab)}
+  .titem{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border:none;background:none;font-family:inherit;cursor:pointer;position:relative}
+  .tico{font-size:19px}
+  .tlbl{font-size:10px;color:var(--sub);font-weight:500}
+  .titem.on .tlbl{color:var(--accent);font-weight:700}
+  .tdot{position:absolute;top:5px;right:calc(50% - 15px);width:8px;height:8px;border-radius:50%;border:2px solid var(--card)}
+
+  /* SHEET */
+  .sov{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;display:flex;align-items:flex-end;opacity:0;pointer-events:none;transition:opacity .25s}
+  .sov.open{opacity:1;pointer-events:all}
+  .sheet{width:100%;background:var(--card);border-radius:20px 20px 0 0;transform:translateY(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);max-height:94vh;display:flex;flex-direction:column;padding-bottom:var(--sab)}
+  .sov.open .sheet{transform:translateY(0)}
+  .shandle{width:40px;height:4px;background:var(--border);border-radius:2px;margin:11px auto 0;flex-shrink:0}
+  .shdr{padding:14px 18px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+  .sttl{font-size:15px;font-weight:700}
+  .sclose{width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--bg);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--sub)}
+  .sbody{padding:18px;overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1}
+  .fg{margin-bottom:14px}
+  .fl{display:block;font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em;margin-bottom:6px}
+  .fhint{font-weight:400;font-size:10px;margin-left:5px;opacity:.75}
+  .fi,.fta{width:100%;background:var(--bg);border:1.5px solid var(--border);border-radius:11px;padding:12px 14px;font-size:16px;color:var(--text);font-family:inherit;outline:none;-webkit-appearance:none;transition:border-color .15s}
+  .fi:focus,.fta:focus{border-color:var(--accent)}
+  .frow{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+  .fta{resize:none;height:68px;font-size:14px;line-height:1.5}
+  .cats{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+  .copt{display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 3px;border-radius:11px;border:1.5px solid var(--border);background:var(--bg);cursor:pointer;font-family:inherit}
+  .copt.on{border-color:var(--accent);background:var(--accent-bg)}
+  .copt .ce{font-size:20px}.copt .cn{font-size:10px;font-weight:600;color:var(--sub)}
+  .copt.on .cn{color:var(--accent)}
+  .presets{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+  .pbtn{padding:5px 11px;border-radius:20px;border:1.5px solid var(--border);background:var(--bg);font-size:12px;font-weight:600;color:var(--sub);cursor:pointer;font-family:inherit}
+  .pbtn:active{background:var(--accent-bg);border-color:var(--accent);color:var(--accent)}
+  .rprev{background:var(--purple-bg);border:1.5px solid rgba(106,62,161,.2);border-radius:11px;padding:11px 13px;margin-top:9px;display:none}
+  .rprev.show{display:block}
+  .rp-ttl{font-size:10px;font-weight:700;color:var(--purple);letter-spacing:.08em;margin-bottom:5px}
+  .rp-date{font-size:17px;font-weight:700;font-family:'DM Mono',monospace;color:var(--purple)}
+  .rp-desc{font-size:11px;color:var(--purple);opacity:.8;margin-top:3px;line-height:1.5}
+  .sftr{padding:11px 18px 8px;border-top:1px solid var(--border);flex-shrink:0}
+  .sbtn{width:100%;background:var(--accent);color:#fff;border:none;border-radius:13px;padding:15px;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer}
+  .sbtn:active{opacity:.85}
+
+  /* CONFIRM */
+  .cov{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .2s}
+  .cov.open{opacity:1;pointer-events:all}
+  .cbox{background:var(--card);border-radius:17px;width:100%;max-width:300px;overflow:hidden;transform:scale(.92);transition:transform .2s}
+  .cov.open .cbox{transform:scale(1)}
+  .chead{padding:22px 22px 14px;text-align:center}
+  .ci{font-size:34px;margin-bottom:10px}
+  .ct{font-size:15px;font-weight:700;margin-bottom:5px}
+  .cn-txt{font-size:12px;color:var(--sub);line-height:1.5}
+  .cbtns{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--border)}
+  .cbtn{padding:15px;border:none;background:none;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer}
+  .cbtn:active{background:var(--bg)}
+  .cbtn.cc{color:var(--sub);border-right:1px solid var(--border)}
+  .cbtn.cd{color:var(--red)}
+
+  /* PWA install banner */
+  .install-banner{background:var(--accent);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:10px;font-size:12px;font-weight:500;flex-shrink:0}
+  .install-banner .ib-close{margin-left:auto;background:rgba(255,255,255,.25);border:none;color:#fff;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}
+</style>
+</head>
+<body>
+
+<!-- iOS ホーム画面追加バナー（Safari検出時のみ表示） -->
+<div class="install-banner" id="install-banner" style="display:none">
+  <span>📲</span>
+  <span>ホーム画面に追加すると<br>アプリとして使えます（Safari → 共有 → ホーム画面に追加）</span>
+  <button class="ib-close" onclick="document.getElementById('install-banner').style.display='none'">✕</button>
+</div>
+
+<header class="hdr">
+  <div class="hdr-l">
+    <div class="hdr-logo">🎁</div>
+    <div><div class="hdr-title">期限管理</div><div class="hdr-sub">ギフト商品</div></div>
+  </div>
+  <button class="hdr-btn" id="btn-search">🔍</button>
+</header>
+
+<div class="scroll">
+  <div class="summary">
+    <div class="sum-cell"><div class="sum-n" id="s-all">0</div><div class="sum-l">総数</div></div>
+    <div class="sum-cell s-ok"><div class="sum-n" id="s-ok">0</div><div class="sum-l">期限内</div></div>
+    <div class="sum-cell s-rm"><div class="sum-n" id="s-rm">0</div><div class="sum-l">在庫落とし</div></div>
+    <div class="sum-cell s-ex"><div class="sum-n" id="s-ex">0</div><div class="sum-l">期限切れ</div></div>
+  </div>
+  <div class="alerts" id="alerts"></div>
+  <div class="search-wrap" id="search-wrap" style="display:none">
+    <div class="search-inner">
+      <span style="color:var(--sub)">🔍</span>
+      <input type="search" id="q" placeholder="商品名・場所で検索...">
+    </div>
+  </div>
+  <div class="chips" id="chips">
+    <button class="chip on" data-f="all">すべて</button>
+    <button class="chip" data-f="expired">🚨 期限切れ</button>
+    <button class="chip" data-f="removal">🟣 在庫落とし</button>
+    <button class="chip" data-f="soon">⚠️ まもなく</button>
+    <button class="chip" data-f="ok">✅ 期限内</button>
+    <button class="chip" data-f="cat-お菓子">🍬 お菓子</button>
+    <button class="chip" data-f="cat-食品">🍱 食品</button>
+    <button class="chip" data-f="cat-飲料">🍵 飲料</button>
+    <button class="chip" data-f="cat-その他">🎀 その他</button>
+  </div>
+  <div class="list-hdr">
+    <div class="list-ttl">商品一覧</div>
+    <div class="list-cnt" id="lcnt">0件</div>
+  </div>
+  <div class="plist" id="plist"></div>
+</div>
+
+<button class="fab" id="fab">＋</button>
+
+<nav class="btab">
+  <button class="titem on" id="t-all" data-tab="all">
+    <span class="tico">📦</span><span class="tlbl">すべて</span>
+  </button>
+  <button class="titem" id="t-alert" data-tab="alert">
+    <span class="tico">🔔</span><span class="tlbl">アラート</span>
+    <span class="tdot" id="dot-alert" style="display:none;background:var(--red)"></span>
+  </button>
+  <button class="titem" id="t-removal" data-tab="removal">
+    <span class="tico">🟣</span><span class="tlbl">在庫落とし</span>
+    <span class="tdot" id="dot-rm" style="display:none;background:var(--purple)"></span>
+  </button>
+  <button class="titem" id="t-sort" data-tab="sort">
+    <span class="tico">↕️</span><span class="tlbl" id="sort-lbl">期限順</span>
+  </button>
+</nav>
+
+<!-- ADD/EDIT SHEET -->
+<div class="sov" id="sov">
+  <div class="sheet">
+    <div class="shandle"></div>
+    <div class="shdr">
+      <div class="sttl" id="sttl">商品を追加</div>
+      <button class="sclose" id="sclose">✕</button>
+    </div>
+    <div class="sbody">
+      <input type="hidden" id="eid">
+      <div class="fg"><label class="fl">商品名 *</label><input type="text" class="fi" id="fn" placeholder="例: 東京ばな奈 8個入" autocomplete="off"></div>
+      <div class="fg">
+        <label class="fl">カテゴリ</label>
+        <div class="cats" id="cats">
+          <button class="copt on" data-cat="お菓子"><span class="ce">🍬</span><span class="cn">お菓子</span></button>
+          <button class="copt" data-cat="食品"><span class="ce">🍱</span><span class="cn">食品</span></button>
+          <button class="copt" data-cat="飲料"><span class="ce">🍵</span><span class="cn">飲料</span></button>
+          <button class="copt" data-cat="その他"><span class="ce">🎀</span><span class="cn">その他</span></button>
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fg"><label class="fl">賞味期限 *</label><input type="date" class="fi" id="fex"></div>
+        <div class="fg"><label class="fl">数量</label><input type="number" class="fi" id="fqty" value="1" min="1"></div>
+      </div>
+      <div class="fg">
+        <label class="fl">基本賞味期限（日数）<span class="fhint">在庫落とし日の算出に使用</span></label>
+        <input type="number" class="fi" id="fsl" placeholder="例: 365" min="1">
+        <div class="presets">
+          <button class="pbtn" data-days="365">1年</button>
+          <button class="pbtn" data-days="360">360日</button>
+          <button class="pbtn" data-days="500">500日</button>
+          <button class="pbtn" data-days="180">半年</button>
+          <button class="pbtn" data-days="90">3ヶ月</button>
+          <button class="pbtn" data-days="30">1ヶ月</button>
+        </div>
+        <div class="rprev" id="rprev">
+          <div class="rp-ttl">🟣 在庫落とし日（1/3ルール）</div>
+          <div class="rp-date" id="rpd">-</div>
+          <div class="rp-desc" id="rpdesc"></div>
+        </div>
+      </div>
+      <div class="fg"><label class="fl">保管場所</label><input type="text" class="fi" id="floc" placeholder="例: 冷蔵庫A棚" autocomplete="off"></div>
+      <div class="fg"><label class="fl">メモ</label><textarea class="fta" id="fmemo" placeholder="備考など..."></textarea></div>
+    </div>
+    <div class="sftr"><button class="sbtn" id="sbtn">保存する</button></div>
+  </div>
+</div>
+
+<!-- DELETE CONFIRM -->
+<div class="cov" id="cov">
+  <div class="cbox">
+    <div class="chead">
+      <div class="ci">🗑️</div>
+      <div class="ct">商品を削除しますか？</div>
+      <div class="cn-txt" id="cn-txt"></div>
+    </div>
+    <div class="cbtns">
+      <button class="cbtn cc" id="ccancel">キャンセル</button>
+      <button class="cbtn cd" id="cok">削除する</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const KEY='expiry_v3';
+let products=[],filter='all',sortMode=0,deleteId=null;
+const SORTS=['期限順','名前順','追加順'];
+const ICONS={'お菓子':'🍬','食品':'🍱','飲料':'🍵','その他':'🎀'};
+
+function offset(n){const d=new Date();d.setDate(d.getDate()+n);return d.toISOString().split('T')[0]}
+const SEED=[
+  {id:1,name:'銀座コロンバン チョコレート詰め合わせ',category:'お菓子',qty:3,expiry:offset(-2),shelfLife:360,location:'事務所棚A',memo:''},
+  {id:2,name:'東京ばな奈 8個入',category:'お菓子',qty:5,expiry:offset(3),shelfLife:120,location:'事務所棚B',memo:'冷暗所保管'},
+  {id:3,name:'プレミアムドリップコーヒーセット',category:'飲料',qty:2,expiry:offset(12),shelfLife:365,location:'冷蔵庫A',memo:''},
+  {id:4,name:'石窯パン詰め合わせ',category:'食品',qty:1,expiry:offset(45),shelfLife:90,location:'棚C',memo:''},
+  {id:5,name:'北海道バタークッキー',category:'お菓子',qty:8,expiry:offset(60),shelfLife:500,location:'棚A',memo:''},
+  {id:6,name:'有機緑茶ギフト',category:'飲料',qty:4,expiry:offset(180),shelfLife:730,location:'棚D',memo:'常温保管可'},
+];
+
+function load(){try{const d=localStorage.getItem(KEY);products=d?JSON.parse(d):[...SEED];}catch(e){products=[...SEED];}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(products));}catch(e){}}
+
+function dl(exp){const t=new Date();t.setHours(0,0,0,0);const e=new Date(exp);e.setHours(0,0,0,0);return Math.ceil((e-t)/86400000)}
+function remDate(exp,sl){if(!exp||!sl)return null;const d=new Date(exp);d.setDate(d.getDate()-Math.floor(sl/3));return d.toISOString().split('T')[0]}
+function dtr(p){const r=remDate(p.expiry,p.shelfLife);return r?dl(r):null}
+function status(p){const d=dl(p.expiry);if(d<0)return'expired';if(p.shelfLife){const r=dtr(p);if(r!==null&&r<=0)return'removal';if(r!==null&&r<=7)return'urgent'}if(d<=3)return'urgent';if(d<=7)return'soon';return'ok'}
+function fmt(d){if(!d)return'-';const[y,m,dd]=d.split('-');return`${y}/${m}/${dd}`}
+function pillTxt(p){const d=dl(p.expiry);if(d<0)return`${Math.abs(d)}日超過`;if(p.shelfLife){const r=dtr(p);if(r!==null&&r<=0)return`落とし${Math.abs(r)}日超過`;if(r!==null&&r<=7)return`落とし日まで${r}日`}if(d===0)return'今日まで';return`残${d}日`}
+
+function getList(){
+  const q=(document.getElementById('q').value||'').toLowerCase();
+  let list=[...products];
+  if(q)list=list.filter(p=>p.name.toLowerCase().includes(q)||(p.location||'').toLowerCase().includes(q));
+  if(filter==='expired')list=list.filter(p=>dl(p.expiry)<0);
+  else if(filter==='removal')list=list.filter(p=>{const r=dtr(p);return r!==null&&r<=7});
+  else if(filter==='soon')list=list.filter(p=>['soon','urgent'].includes(status(p)));
+  else if(filter==='ok')list=list.filter(p=>status(p)==='ok');
+  else if(filter.startsWith('cat-'))list=list.filter(p=>p.category===filter.slice(4));
+  if(sortMode===0)list.sort((a,b)=>new Date(a.expiry)-new Date(b.expiry));
+  else if(sortMode===1)list.sort((a,b)=>a.name.localeCompare(b.name,'ja'));
+  else list.sort((a,b)=>b.id-a.id);
+  return list;
+}
+
+function render(){
+  const expired=products.filter(p=>dl(p.expiry)<0).length;
+  const rmN=products.filter(p=>{const r=dtr(p);return r!==null&&r<=0}).length;
+  const okN=products.filter(p=>status(p)==='ok').length;
+  document.getElementById('s-all').textContent=products.length;
+  document.getElementById('s-ok').textContent=okN;
+  document.getElementById('s-rm').textContent=rmN;
+  document.getElementById('s-ex').textContent=expired;
+  document.getElementById('dot-alert').style.display=expired>0?'':'none';
+  document.getElementById('dot-rm').style.display=rmN>0?'':'none';
+
+  let al='';
+  if(expired>0)al+=`<div class="alert danger"><span>🚨</span><div><strong>${expired}件が賞味期限切れ</strong>です。確認・廃棄処理をしてください。</div></div>`;
+  const rmA=products.filter(p=>{const r=dtr(p);return r!==null&&r<=7&&dl(p.expiry)>=0});
+  if(rmA.length>0)al+=`<div class="alert removal"><span>🟣</span><div><strong>${rmA.length}件が在庫落とし日を過ぎているか7日以内</strong>です。在庫から落としてください。</div></div>`;
+  document.getElementById('alerts').innerHTML=al;
+
+  const list=getList();
+  document.getElementById('lcnt').textContent=`${list.length}件`;
+  if(!list.length){document.getElementById('plist').innerHTML=`<div class="empty"><div class="empty-i">📭</div><p>該当する商品がありません<br>右下の ＋ から追加できます</p></div>`;return}
+
+  const SC={ok:'#3A7D58',soon:'#9A7A18',urgent:'#B84E20',expired:'#AA2828',removal:'#6A3EA1'};
+  const SB={ok:'#EAF5EF',soon:'#FBF5E0',urgent:'#FBF0EB',expired:'#FCEAEA',removal:'#F3EDFF'};
+
+  document.getElementById('plist').innerHTML=list.map(p=>{
+    const st=status(p),icon=ICONS[p.category]||'📦';
+    const rd=p.shelfLife?remDate(p.expiry,p.shelfLife):null,dr=rd?dl(rd):null;
+    let rmH='';
+    if(rd){if(dr<=0)rmH=`<div class="rm-banner">🟣 在庫落とし日: ${fmt(rd)}（${Math.abs(dr)}日超過）</div>`;else if(dr<=14)rmH=`<div class="rm-banner">🟣 在庫落とし日: ${fmt(rd)}（あと${dr}日）</div>`;else rmH=`<div class="rm-info">🟣 在庫落とし日: ${fmt(rd)}</div>`}
+    return`<div class="pcard"><div class="cbar ${st}"></div><div class="cbody">
+      <div class="ctop"><div class="cname">${p.name}</div><div class="pill ${st}">${pillTxt(p)}</div></div>
+      <div class="cmeta"><span class="ctag">${icon} ${p.category}</span><span class="cmeta-item">📅 ${fmt(p.expiry)}</span><span class="cmeta-item">📦 ${p.qty}個</span>${p.location?`<span class="cmeta-item">📍 ${p.location}</span>`:''}</div>
+      ${rmH}${p.memo?`<div class="cmemo">💬 ${p.memo}</div>`:''}
+      <div class="cactions"><button class="cact edit-btn" data-id="${p.id}">✏️ 編集</button><button class="cact del del-btn" data-id="${p.id}">🗑 削除</button></div>
+    </div></div>`;
+  }).join('');
+}
+
+// Event Delegation
+document.getElementById('plist').addEventListener('click',e=>{
+  const eb=e.target.closest('.edit-btn'),db=e.target.closest('.del-btn');
+  if(eb){const p=products.find(x=>x.id==eb.dataset.id);if(p)openSheet(p)}
+  if(db){const p=products.find(x=>x.id==db.dataset.id);if(p){deleteId=p.id;document.getElementById('cn-txt').textContent=`「${p.name}」を削除します。この操作は取り消せません。`;document.getElementById('cov').classList.add('open')}}
+});
+
+document.getElementById('chips').addEventListener('click',e=>{const c=e.target.closest('.chip');if(!c)return;filter=c.dataset.f;document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c));render()});
+
+document.querySelector('.btab').addEventListener('click',e=>{
+  const t=e.target.closest('.titem');if(!t)return;
+  const tab=t.dataset.tab;
+  if(tab==='sort'){sortMode=(sortMode+1)%3;document.getElementById('sort-lbl').textContent=SORTS[sortMode];render();return}
+  document.querySelectorAll('.titem').forEach(x=>x.classList.remove('on'));t.classList.add('on');
+  const map={all:'all',alert:'expired',removal:'removal'};
+  if(map[tab]){filter=map[tab];document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x.dataset.f===filter));}
+  render();
+});
+
+document.getElementById('btn-search').addEventListener('click',()=>{
+  const w=document.getElementById('search-wrap'),open=w.style.display!=='none';
+  w.style.display=open?'none':'block';
+  if(!open)setTimeout(()=>document.getElementById('q').focus(),50);
+  else{document.getElementById('q').value='';render()}
+});
+document.getElementById('q').addEventListener('input',render);
+
+// Sheet
+function openSheet(p=null){
+  document.getElementById('sttl').textContent=p?'商品を編集':'商品を追加';
+  document.getElementById('eid').value=p?p.id:'';
+  document.getElementById('fn').value=p?p.name:'';
+  document.getElementById('fex').value=p?p.expiry:'';
+  document.getElementById('fqty').value=p?p.qty:1;
+  document.getElementById('fsl').value=p&&p.shelfLife?p.shelfLife:'';
+  document.getElementById('floc').value=p?p.location||'':'';
+  document.getElementById('fmemo').value=p?p.memo||'':'';
+  document.querySelectorAll('.copt').forEach(el=>el.classList.toggle('on',el.dataset.cat===(p?p.category:'お菓子')));
+  updateRP();document.getElementById('sov').classList.add('open');
+  setTimeout(()=>document.getElementById('fn').focus(),350);
+}
+function closeSheet(){document.getElementById('sov').classList.remove('open')}
+document.getElementById('sclose').addEventListener('click',closeSheet);
+document.getElementById('sov').addEventListener('click',e=>{if(e.target===document.getElementById('sov'))closeSheet()});
+document.getElementById('cats').addEventListener('click',e=>{const o=e.target.closest('.copt');if(!o)return;document.querySelectorAll('.copt').forEach(c=>c.classList.remove('on'));o.classList.add('on')});
+document.querySelector('.presets').addEventListener('click',e=>{const b=e.target.closest('.pbtn');if(!b)return;document.getElementById('fsl').value=b.dataset.days;updateRP()});
+document.getElementById('fex').addEventListener('change',updateRP);
+document.getElementById('fsl').addEventListener('input',updateRP);
+
+function updateRP(){
+  const exp=document.getElementById('fex').value,sl=parseInt(document.getElementById('fsl').value),prev=document.getElementById('rprev');
+  if(!exp||!sl||sl<1){prev.classList.remove('show');return}
+  const rd=remDate(exp,sl),d=dl(rd),rm=Math.floor(sl/3);
+  document.getElementById('rpd').textContent=fmt(rd);
+  let desc=`基本賞味期限${sl}日 ÷ 3 = ${rm}日前が在庫落とし日`;
+  if(d<0)desc+=` ／ すでに${Math.abs(d)}日超過`;else if(d===0)desc+=' ／ 本日が在庫落とし日';else desc+=` ／ あと${d}日`;
+  document.getElementById('rpdesc').textContent=desc;prev.classList.add('show');
+}
+
+document.getElementById('sbtn').addEventListener('click',()=>{
+  const name=document.getElementById('fn').value.trim(),expiry=document.getElementById('fex').value;
+  if(!name||!expiry)return;
+  const sl=document.getElementById('fsl').value;
+  const data={name,category:document.querySelector('.copt.on')?.dataset.cat||'お菓子',qty:parseInt(document.getElementById('fqty').value)||1,expiry,shelfLife:sl?parseInt(sl):null,location:document.getElementById('floc').value.trim(),memo:document.getElementById('fmemo').value.trim()};
+  const eid=document.getElementById('eid').value;
+  if(eid){const i=products.findIndex(p=>p.id==eid);if(i>=0)products[i]={...products[i],...data}}else{data.id=Date.now();products.push(data)}
+  save();closeSheet();render();
+});
+document.getElementById('fab').addEventListener('click',()=>openSheet());
+
+// Delete
+document.getElementById('ccancel').addEventListener('click',()=>{document.getElementById('cov').classList.remove('open');deleteId=null});
+document.getElementById('cov').addEventListener('click',e=>{if(e.target===document.getElementById('cov')){document.getElementById('cov').classList.remove('open');deleteId=null}});
+document.getElementById('cok').addEventListener('click',()=>{
+  if(deleteId!==null){products=products.filter(p=>p.id!==deleteId);save();render()}
+  document.getElementById('cov').classList.remove('open');deleteId=null;
+});
+
+// iOS install banner
+const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
+const isInStandalone=window.navigator.standalone;
+if(isIOS&&!isInStandalone&&!localStorage.getItem('banner_dismissed')){
+  document.getElementById('install-banner').style.display='flex';
+}
+document.querySelector('.ib-close')?.addEventListener('click',()=>{localStorage.setItem('banner_dismissed','1')});
+
+load();render();
+</script>
+</body>
+</html>
